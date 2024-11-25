@@ -1,6 +1,6 @@
 # FileOperationsInC
 # exe 1
-countignous insertion in a disk 
+library managment system
 # exe2
 linked insertion in disk
 # exe3
