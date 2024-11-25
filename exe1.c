@@ -2,256 +2,306 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DISK_SIZE 100
+#define BOOK_FILE "book.txt"
+#define INDEX_FILE "index.txt"
 
 typedef struct
 {
-    char fname[3];
-    int strat;
-    int blocksize;
-} Disk;
+  int ID;
+  char title[50];
+  char author[50];
+  int year;
+} Book;
 
-void initializeDisk(Disk *disk)
+typedef struct
 {
-    for (int i = 0; i < DISK_SIZE; i++)
+  int bookID;
+  long position;
+} Index;
+
+Index *bookIndex = NULL;
+int indexCount = 0;
+
+int isUniqueID(int ID)
+{
+
+  for (int i = 0; i < indexCount; i++)
+  {
+    if (bookIndex[i].bookID == ID)
     {
-        strcpy(disk[i].fname, "");
+      return 0;
     }
+  }
+
+  FILE *file = fopen(BOOK_FILE, "rb");
+  if (!file)
+    return 1;
+
+  Book book;
+  while (fread(&book, sizeof(Book), 1, file))
+  {
+    if (book.ID == ID)
+    {
+      fclose(file);
+      return 0;
+    }
+  }
+  fclose(file);
+
+  return 1;
 }
 
-
-
-
-void store(Disk *disk, char *name, int start, int blocksize)
+void loadIndexInMemory()
 {
-    int n;
-    if (start != 0)
+  FILE *file = fopen(INDEX_FILE, "rb");
+  if (!file)
+    return;
+
+  while (fread(&bookIndex[indexCount], sizeof(Index), 1, file))
+  {
+    indexCount++;
+    bookIndex = realloc(bookIndex, (indexCount + 1) * sizeof(Index));
+  }
+
+  fclose(file);
+}
+
+void saveIndex()
+{
+  FILE *file = fopen(INDEX_FILE, "wb");
+  for (int i = 0; i < indexCount; i++)
+  {
+    fwrite(&bookIndex[i], sizeof(Index), 1, file);
+  }
+  fclose(file);
+}
+
+void addBook()
+{
+  Book book;
+  printf("Enter Book ID: ");
+  scanf("%d", &book.ID);
+
+  while (!isUniqueID(book.ID))
+  {
+    printf("Error: Book ID already exists. Enter a new ID: ");
+    scanf("%d", &book.ID);
+  }
+
+  printf("Enter Title: ");
+  getchar();
+  fgets(book.title, sizeof(book.title), stdin);
+  book.title[strcspn(book.title, "\n")] = '\0';
+
+  printf("Enter Author: ");
+  fgets(book.author, sizeof(book.author), stdin);
+  book.author[strcspn(book.author, "\n")] = '\0';
+
+  printf("Enter Year: ");
+  scanf("%d", &book.year);
+
+  FILE *file = fopen(BOOK_FILE, "ab");
+  fseek(file, 0, SEEK_END);
+  long position = ftell(file);
+  fwrite(&book, sizeof(Book), 1, file);
+  fclose(file);
+
+  bookIndex = realloc(bookIndex, (indexCount + 1) * sizeof(Index));
+  bookIndex[indexCount].bookID = book.ID;
+  bookIndex[indexCount].position = position;
+  indexCount++;
+
+  FILE *f = fopen(INDEX_FILE, "ab");
+  fwrite(&bookIndex[indexCount - 1], sizeof(Index), 1, f);
+  fclose(f);
+}
+
+int searchBook(int ID)
+{
+ 
+  int low = 0, high = indexCount - 1;
+  while (low <= high)
+  {
+    int mid = (low + high) / 2;
+    if (bookIndex[mid].bookID == ID)
     {
-        n = blocksize + start;
+      return bookIndex[mid].position; 
+    }
+    else if (bookIndex[mid].bookID < ID)
+    {
+      low = mid + 1;
     }
     else
     {
-        n = blocksize + start + 1;
+      high = mid - 1;
     }
-    for (int i = start; i < n; i++)
+  }
+
+  
+  FILE *file = fopen(BOOK_FILE, "rb");
+  if (!file)
+  {
+    printf("Error opening file.\n");
+    return -1;
+  }
+
+  Book book;
+  while (fread(&book, sizeof(Book), 1, file))
+  {
+    if (book.ID == ID)
     {
-        strcpy(disk[i].fname, name);
-        disk[i].strat = start;
-        if (start != 0)
-        {
-            disk[i].blocksize = blocksize;
-        }
+      long position = ftell(file) - sizeof(Book); 
+      fclose(file);
+      return position; 
     }
-    printf("File is stored starting from %d th block\n", start);
+  }
+
+  fclose(file);
+  return -1;
 }
 
-int checkFileName(Disk *disk, char *name)
+
+void deleteBook()
 {
-    if (name == NULL)
-    {
-        printf("ERROR: Invalid name\n");
-        return 0;
-    }
+  int ID;
+  printf("Enter Book ID to delete: ");
+  scanf("%d", &ID);
 
-    if (name[0] == '\0')
-    {
-        printf("ERROR: This name is empty\n");
-        return 0;
-    }
+  int position = searchBook(ID);
+  if (position != -1)
+  {
 
-    for (int i = 0; i < DISK_SIZE; i++)
-    {
-        int j = 0;
-        while (name[j] != '\0' && disk[i].fname[j] != '\0' && name[j] == disk[i].fname[j])
-        {
-            j++;
-        }
-        if (name[j] != disk[i].fname[j])
-        {
-            break;
-        }
-        else if (name[j] == '\0')
-        {
-            printf("ERROR: This name is already taken\n");
-            return 0;
-        }
-    }
+    FILE *file = fopen(BOOK_FILE, "rb+");
+    fseek(file, position, SEEK_SET);
+    Book emptyBook = {0};
+    fwrite(&emptyBook, sizeof(Book), 1, file);
+    fclose(file);
 
-    printf("Name has been set successfully\n");
-    return 1;
-}
-
-int checkBlocksize(Disk *disk, int blocksize, char *name)
-{
-    int start = 0;
-    int count = 0;
-    int free = 0;
-    if (blocksize <= 0)
-    {
-        printf("ERROR: Invalid block size\n");
-        return 0;
-    }
-    for (int i = 0; i < DISK_SIZE; i++)
-    {
-        if (disk[i].fname[0] == '\0')
-        {
-            free++;
-            count++;
-        }
-        else
-        {
-            count = 0;
-            start = i;
-        }
-        if (count == blocksize)
-        {
-            store(disk, name, start, blocksize);
-            return 1;
-        }
-    }
-    if (free >= blocksize)
-    {
-        printf("file can't be stored however you can use defragmentation\n");
-        return 0;
-    }
-    if (free < blocksize)
-    {
-        printf("ERROR: Insufficient storage\n");
-        return 0;
-    }
-}
-
-void addFile(Disk *disk)
-{
-    char name[3];
-    int blocksize;
-
-    int v;
-    do
-    {
-        printf("enter file name(2 characters)\n");
-        scanf("%s", name);
-        name[3] = '\0';
-
-    } while (checkFileName(disk, name) == 0);
-    do
-    {
-        printf("enter the size of your file in blocks\n");
-        scanf("%d", &blocksize);
-    } while (checkBlocksize(disk, blocksize, name) == 0);
-}
-
-void deleteFile(Disk *disk)
-{
-    char name[3];
-    int i, j, n;
-
-    printf("Enter the name of the file to delete: ");
-    scanf("%s", name);
-
-    for (i = 0; i < DISK_SIZE; i++)
-    {
-        if (strcmp(disk[i].fname, name) == 0)
-        {
-
-            n = disk[i].blocksize;
-
-            for (j = i; j < i + n; j++)
-            {
-                disk[j].blocksize = 0;
-                strcpy(disk[j].fname, "");
-                disk[j].strat = -1;
-            }
-
-            i += n - 1;
-        }
-    }
-
-    printf("Files with name '%s' deleted successfully.\n", name);
-}
-
-void displayDisk(Disk *disk)
-{
-
-    for (int i = 0; i < DISK_SIZE; i++)
-    {
-
-        if (i % 10 == 0)
-        {
-            printf("\n");
-        }
-        if (strcmp(disk[i].fname, "") == 0)
-        {
-            printf("## | ");
-        }
-        else
-        {
-            printf("%-2s | ", disk[i].fname);
-        }
-    }
-    printf("\n");
-}
-
-void defragmentDisk(Disk *disk)
-{
-    Disk newDisk[DISK_SIZE];
     int i, j;
-
-    for (i = 0, j = 0; i < DISK_SIZE; i++)
+    for (i = 0; i < indexCount; i++)
     {
-        if (disk[i].fname[0] != '\0')
-        {
-            newDisk[j++] = disk[i];
-        }
+      if (bookIndex[i].bookID == ID)
+      {
+        break;
+      }
     }
 
-    for (i = 0; i < j; i++)
+    for (j = i; j < indexCount - 1; j++)
     {
-        disk[i] = newDisk[i];
+      bookIndex[j] = bookIndex[j + 1];
     }
 
-    for (i = j; i < DISK_SIZE; i++)
-    {
-        strcpy(disk[i].fname, "\0");
-    }
+    indexCount--;
+
+    saveIndex();
+  }
+  else
+  {
+    printf("Book not found.\n");
+  }
 }
+
+void displayFileContent()
+{
+  FILE *file = fopen(BOOK_FILE, "rb");
+  if (!file)
+  {
+    printf("Error opening file.\n");
+    return;
+  }
+
+  Book book;
+  while (fread(&book, sizeof(Book), 1, file))
+  {
+    if (book.ID != 0)
+      printf("ID: %d, Title: %s, Author: %s, Year: %d\n", book.ID, book.title, book.author, book.year);
+  }
+  fclose(file);
+}
+
+void displayIndexContent()
+{
+  FILE *file = fopen(INDEX_FILE, "rb");
+  if (!file)
+  {
+    printf("Error opening index file.\n");
+    return;
+  }
+
+  Index indexEntry;
+  while (fread(&indexEntry, sizeof(Index), 1, file))
+  {
+    printf("Book ID: %d, Position: %ld\n", indexEntry.bookID, indexEntry.position);
+  }
+
+  fclose(file);
+}
+
 
 int main()
 {
-    Disk disk[DISK_SIZE];
-    int choice;
+  loadIndexInMemory();
 
-    initializeDisk(disk);
+  int choice;
+  do
+  {
+    printf("\nLibrary Management System\n");
+    printf("1. Add Book\n");
+    printf("2. Search Book\n");
+    printf("3. Delete Book\n");
+    printf("4. Display Books\n");
+    printf("5. Display Index\n");
+    printf("0. Exit\n");
+    printf("Enter your choice: ");
+    scanf("%d", &choice);
 
-    do
+    switch (choice)
     {
-        printf("\n1. Add File\n2. Delete File\n3. Display Disk\n4. Defragment Disk\n5. Read file\n0. Exit\n");
-        printf("Enter your choice: ");
-        scanf("%d", &choice);
+    case 1:
+      addBook();
+      saveIndex();
+      break;
+    case 2:
+    {
+      int searchID;
+      printf("Enter Book ID to search: ");
+      scanf("%d", &searchID);
+      int position = searchBook(searchID);
+      if (position != -1)
+      {
+        FILE *file = fopen(BOOK_FILE, "rb");
+        fseek(file, position, SEEK_SET);
+        Book book;
+        fread(&book, sizeof(Book), 1, file);
+        printf("ID: %d, Title: %s, Author: %s, Year: %d\n", book.ID, book.title, book.author, book.year);
+        fclose(file);
+      }
+      else
+      {
+        printf("Book not found.\n");
+      }
+      break;
+    }
+    case 3:
+      deleteBook();
+      saveIndex();
+      break;
+    case 4:
+      displayFileContent();
+      break;
+    case 5:
+      displayIndexContent();
 
-        switch (choice)
-        {
-        case 1:
-            addFile(disk);
-            break;
-        case 2:
-            deleteFile(disk);
-            break;
-        case 3:
-            displayDisk(disk);
-            break;
-        case 4:
-            defragmentDisk(disk);
-            printf("Disk defragmented.\n");
-            break;
-        case 0:
-            printf("Exiting");
-            break;
-        default:
-            printf("error: option invalide\n");
-        }
+      break;
+    case 0:
+      saveIndex();
+      free(bookIndex);
+      printf("Exiting program.\n");
+      break;
+    default:
+      printf("Invalid choice. Please try again.\n");
+    }
+  } while (choice != 0);
 
-    } while (choice != 0);
-
-    return 0;
+  return 0;
 }
